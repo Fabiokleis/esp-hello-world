@@ -1,5 +1,10 @@
 # esp-hello-world
-hello world no esp32. Esse repositorio tem um setup basico de projeto esp32
+hello world no esp32. Esse repositorio tem um setup basico de projeto esp32 com display ili9341 e lvgl.
+
+
+![IMG_20240808_202242412_HDR](https://github.com/user-attachments/assets/88572489-118f-44aa-8c44-ed636c5e8c2c)
+
+
 ## setup
 instale o [nixos](https://nixos.org/download/) e rode na raiz desse repositorio:
 ```shell
