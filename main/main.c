@@ -17,8 +17,8 @@
 /* LCD settings */
 #define LCD_HOST               (SPI2_HOST)
 #define LCD_TOUCH_HOST         (SPI3_HOST)
-#define LCD_H_RES              (320)
-#define LCD_V_RES              (240)
+#define LCD_H_RES              (240)
+#define LCD_V_RES              (320)
 #define LCD_BIT_PER_PIXEL      (16)
 
 /* pins */
@@ -44,8 +44,6 @@ static esp_lcd_touch_handle_t touch_handle = NULL;
 static lv_display_t *lvgl_disp = NULL;
 static lv_indev_t *lvgl_touch_indev = NULL;
 
-
-
 static esp_err_t init_lcd() {
     esp_err_t ret = ESP_OK;
 
@@ -55,8 +53,8 @@ static esp_err_t init_lcd() {
         .sclk_io_num = PIN_LCD_SCK,
         .mosi_io_num = PIN_LCD_MOSI,
         .miso_io_num = PIN_LCD_MISO,
-        .quadhd_io_num = -1,
-        .quadwp_io_num = -1,
+        .quadhd_io_num = GPIO_NUM_NC,
+        .quadwp_io_num = GPIO_NUM_NC,
         .max_transfer_sz = LCD_H_RES * 80 * (LCD_BIT_PER_PIXEL / 2),
     };
     
@@ -87,7 +85,7 @@ static esp_err_t init_lcd() {
     ESP_ERROR_CHECK(esp_lcd_new_panel_ili9341(io_handle, &panel_config, &lcd_panel));
     ESP_ERROR_CHECK(esp_lcd_panel_reset(lcd_panel));  
     ESP_ERROR_CHECK(esp_lcd_panel_init(lcd_panel));
-    ESP_ERROR_CHECK(esp_lcd_panel_mirror(lcd_panel, true, true));
+    ESP_ERROR_CHECK(esp_lcd_panel_mirror(lcd_panel, false, false));
     ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(lcd_panel, true));
     
     ESP_LOGI(TAG, "Installed ili9341 panel driver");    
@@ -135,10 +133,10 @@ static esp_err_t init_lcd() {
       .x_max = LCD_H_RES,
       .y_max = LCD_V_RES,
       .rst_gpio_num = PIN_LCD_RST,
-      .int_gpio_num = PIN_LCD_TOUCH_IRQ,
+      .int_gpio_num = GPIO_NUM_NC, //PIN_LCD_TOUCH_IRQ,
       .flags = {
-            .swap_xy = true,
-            .mirror_x = true,
+            .swap_xy = false,
+            .mirror_x = false,
             .mirror_y = true,
         },
     };
@@ -175,9 +173,9 @@ static esp_err_t app_lvgl_init(void)
         .monochrome = false,
         /* Rotation values must be same as used in esp_lcd for initial settings of the screen */
         .rotation = {
-            .swap_xy = true,
+            .swap_xy = false,
             .mirror_x = true,
-            .mirror_y = true,
+            .mirror_y = false,
         },
         .flags = {
             .buff_dma = true,
@@ -195,42 +193,67 @@ static esp_err_t app_lvgl_init(void)
     return ESP_OK;
 }
 
-
-static void btn_event_cb(lv_event_t * e)
+static void textarea_event_handler(lv_event_t * e)
 {
-    lv_event_code_t code = lv_event_get_code(e);
-    lv_obj_t * btn = lv_event_get_target(e);
-    ESP_LOGI(TAG, "chamou chamou %d\n", code);
-    if(code == LV_EVENT_CLICKED) {
-        static uint8_t cnt = 0;
-        cnt++;
+    lv_obj_t * ta = lv_event_get_target(e);
+    LV_UNUSED(ta);
+    LV_LOG_USER("Enter was pressed. The current text is: %s", lv_textarea_get_text(ta));
+}
 
-        /*Get the first child of the button which is the label and change its text*/
-        lv_obj_t * label = lv_obj_get_child(btn, 0);
-        lv_label_set_text_fmt(label, "Button: %d", cnt);
+static void btnm_event_handler(lv_event_t * e)
+{
+    lv_obj_t * obj = lv_event_get_target(e);
+    lv_obj_t * ta = lv_event_get_user_data(e);
+    const char * txt = lv_buttonmatrix_get_button_text(obj, lv_buttonmatrix_get_selected_button(obj));
+
+    /* TODO: criar a calculadora de fato */
+    switch (*txt) {
+    case '+':
+    case '-':
+    case '*':
+    case '/':
+    case '=':
+      
+    default:
+      break;
     }
+    
+    if(lv_strcmp(txt, LV_SYMBOL_BACKSPACE) == 0) lv_textarea_delete_char(ta);
+    else if(lv_strcmp(txt, LV_SYMBOL_NEW_LINE) == 0) lv_obj_send_event(ta, LV_EVENT_READY, NULL);
+    else lv_textarea_add_text(ta, txt);
+
 }
 
-void create_counter_button(lv_obj_t* scr)
+void lv_example_textarea_1(void)
 {
-    lv_obj_t * btn = lv_button_create(scr);     /*Add a button the current screen*/
-    lv_obj_set_pos(btn, 10, 10);                            /*Set its position*/
-    lv_obj_set_size(btn, 120, 50);                          /*Set its size*/
-    lv_obj_add_event_cb(btn, btn_event_cb, LV_EVENT_ALL, NULL);           /*Assign a callback to the button*/
+    lv_obj_t * ta = lv_textarea_create(lv_screen_active());
+    lv_textarea_set_one_line(ta, true);
+    lv_obj_align(ta, LV_ALIGN_TOP_MID, 10, 10);
+    lv_obj_add_event_cb(ta, textarea_event_handler, LV_EVENT_READY, ta);
+    lv_obj_add_state(ta, LV_STATE_FOCUSED); /*To be sure the cursor is visible*/
 
-    lv_obj_t * label = lv_label_create(btn);          /*Add a label to the button*/
-    lv_label_set_text(label, "Button");                     /*Set the labels text*/
-    lv_obj_center(label);
+    static const char * btnm_map[] = {"1", "2", "3", "+", "\n",
+                                      "4", "5", "6", "-", "\n",
+                                      "7", "8", "9", "*", "\n",
+				      "0", LV_SYMBOL_BACKSPACE, "=", ""
+                                     };
+
+    lv_obj_t * btnm = lv_buttonmatrix_create(lv_screen_active());
+    lv_obj_set_size(btnm, 250, 200);
+    lv_obj_align(btnm, LV_ALIGN_BOTTOM_MID, 0, -10);
+    lv_obj_add_event_cb(btnm, btnm_event_handler, LV_EVENT_VALUE_CHANGED, ta);
+    lv_obj_remove_flag(btnm, LV_OBJ_FLAG_CLICK_FOCUSABLE); /*To keep the text area focused on button clicks*/
+    lv_buttonmatrix_set_map(btnm, btnm_map);
 }
 
-void create_hello_world(lv_obj_t* scr) {
-    lv_obj_t *label = lv_label_create(scr);
-    lv_obj_set_width(label, LCD_H_RES);
-    lv_obj_set_style_bg_color(scr, lv_color_hex(0xe1bdff), LV_PART_MAIN);
-    lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
-    lv_label_set_text(label, "esp32 Hello world!");
-    lv_obj_align(label, LV_ALIGN_CENTER, 0, -30);
-}
+/* void create_hello_world(lv_obj_t* scr) { */
+/*     lv_obj_t *label = lv_label_create(scr); */
+/*     lv_obj_set_width(label, LCD_H_RES); */
+/*     lv_obj_set_style_bg_color(scr, lv_color_hex(0xe1bdff), LV_PART_MAIN); */
+/*     lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0); */
+/*     lv_label_set_text(label, "esp32 Hello world!"); */
+/*     lv_obj_align(label, LV_ALIGN_CENTER, 0, -30); */
+/* } */
 
 void app_main(void)
 {
@@ -253,25 +276,26 @@ void app_main(void)
     ESP_ERROR_CHECK(app_lvgl_init());
 
     lvgl_port_lock(0);
-    lv_obj_t *scr = lv_scr_act();
-    create_hello_world(scr);
-    create_counter_button(scr);
+    /* lv_obj_t *scr = lv_scr_act(); */
+
+    lv_example_textarea_1();
+    //create_hello_world(scr);
+    //create_counter_button(scr);
     lvgl_port_unlock();
 
     ESP_ERROR_CHECK(esp_lcd_touch_read_data(touch_handle));
-    uint16_t x[1];
-    uint16_t y[1];
-    uint16_t  strength[1];
-    uint8_t count = 0;
+    /* uint16_t x[1]; */
+    /* uint16_t y[1]; */
+    /* uint16_t  strength[1]; */
+    /* uint8_t count = 0; */
 
-    bool touchpad_pressed = false; 
-
+    /* bool touchpad_pressed = false;  */
     
     ESP_LOGI(TAG, "Minimum free heap size: %"PRIu32" bytes\n", esp_get_minimum_free_heap_size());
     while (1) {
-      ESP_ERROR_CHECK(esp_lcd_touch_read_data(touch_handle));
-      esp_lcd_touch_get_coordinates(touch_handle, x, y, strength, &count, 1);
-      vTaskDelay(pdMS_TO_TICKS(1000));
-      ESP_LOGI(TAG, "counter: %d x: %d y: %d touchpad_pressed: %d", count, *x, *y, touchpad_pressed);
+      /* ESP_ERROR_CHECK(esp_lcd_touch_read_data(touch_handle)); */
+      /* touchpad_pressed = esp_lcd_touch_get_coordinates(touch_handle, x, y, strength, &count, 1); */
+      vTaskDelay(pdMS_TO_TICKS(300));
+      /* ESP_LOGI(TAG, "counter: %d x: %d y: %d touchpad_pressed: %d", count, *x, *y, touchpad_pressed); */
     }
 }
