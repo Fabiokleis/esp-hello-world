@@ -46,12 +46,11 @@ static lv_display_t *lvgl_disp = NULL;
 static lv_indev_t *lvgl_touch_indev = NULL;
 
 /* tree, lvgl custom events */
+#define MAX_TREE_HEIGHT 2
+#define MAX_STACK_SIZE 3 * MAX_TREE_HEIGHT
 #define MAX_NUM_DIGITS 9
+static uint32_t CALC_EVENT_EVAL;
 Arvore *arv = NULL;
-static uint8_t cursor = 0;
-static char num_buffer[MAX_NUM_DIGITS];
-static uint32_t CALC_EVENT_SUM, CALC_EVENT_SUB, CALC_EVENT_MUL, CALC_EVENT_DIVI, CALC_EVENT_EVAL;
-
 
 static esp_err_t init_lcd() {
     esp_err_t ret = ESP_OK;
@@ -199,142 +198,108 @@ static esp_err_t app_lvgl_init(void)
     return ESP_OK;
 }
 
-uint32_t get_num() {
-    const uint32_t num = (uint32_t)strtol(num_buffer, NULL, 10);
-    /* reset number digits buffer and cursor */
-    memset(num_buffer, 0, MAX_NUM_DIGITS);
-    cursor = 0;
-    return num;
-}		    
+
+/* uint32_t get_num() { */
+/*     const uint32_t num = (uint32_t)strtol(num_buffer, NULL, 10); */
+/*     /\* reset number digits buffer and cursor *\/ */
+/*     memset(num_buffer, 0, MAX_NUM_DIGITS); */
+/*     num_cursor = 0; */
+/*     return num; */
+/* } */
+
+
+static bool is_operator(char p) {
+  return (p == '+') || (p == '-') || (p == '*') || (p == '/');
+}
+
+static uint8_t op_peso(char op) {
+  switch (op) {
+  case '+':
+  case '-': return 2;
+  case '*':
+  case '/': return 3;
+  }
+  return 2;
+}
+
+/* shunting yard RPN */
+static char** create_stack(const char *txt) {
+
+  
+  char num_buffer[MAX_NUM_DIGITS] = {0};
+  char op_stack[MAX_STACK_SIZE][1] = {[0][0]=0};
+  char data_stack[MAX_STACK_SIZE][MAX_NUM_DIGITS] = {[0][0]=0};
+  uint8_t num_cursor = 0;
+  uint8_t op_counter = 0;
+  uint8_t data_counter = 0;
+  
+  printf("2txt: %s\n", txt);
+  
+  for (uint8_t i = 0; txt[i] != '\0'; i++) {
+    if (is_operator(txt[i])) {
+      printf("i: %c\n", txt[i]);
+      if (op_counter > 0) {
+	char op = op_stack[op_counter-1][0]; /* top stack op */
+	printf("op: %c\n", op);
+	uint8_t npeso = op_peso(txt[i]); /* next stack op */
+	if (npeso > op_peso(op)) {
+	  op_stack[op_counter++][0] = txt[i];
+	} else {
+	  /* op_stack[op_counter-1][0] = '\0'; */
+	  while (npeso < op_peso(op)) {
+	    op_counter--;
+	    data_stack[data_counter++][0] = op; /* push do top op com peso maior */
+	    if (op_counter == 0) break;
+	    op_stack[op_counter][0] = op_stack[op_counter-1][0];
+	    op_stack[op_counter-1][0] = '\0';
+	    op = op_stack[op_counter][0]; /* pop do top op da stack */
+	  }
+	}
+      } else {
+	printf("chamo op %c\n", txt[i]);
+	op_stack[op_counter++][0] = txt[i];
+      }
+    } else {
+      while(txt[i] != '\0' && !is_operator(txt[i])) {
+	printf("char: %c\n", txt[i]);
+	num_buffer[num_cursor++] = txt[i];
+	i++;
+      }
+      printf("num_buffer: %s\n", num_buffer);
+      strncpy(data_stack[data_counter], num_buffer, MAX_NUM_DIGITS);
+      memset(num_buffer, 0, MAX_NUM_DIGITS);
+      num_cursor = 0;
+      data_counter++;
+      i--;
+    }
+  }
+
+  printf("op stack\n");
+  printf("strlen: %d\n", op_counter);
+  for (uint8_t i = 0; i <= op_counter; ++i) {
+    printf("%c\n", op_stack[i][0]);
+  }
+  printf("------------------\n");
+  
+  printf("data stack\n");
+  printf("strlen: %d\n", data_counter);
+  for (uint8_t i = 0; i < data_counter; ++i) {
+    if (strlen(data_stack[i]) == 1) printf("%c\n", data_stack[i][0]);
+    else printf("%s\n", data_stack[i]);
+  }
+  printf("------------------\n");
+
+  return NULL;
+}
 
 /* calculator arit exprs */
-static void calc_sum_event_handler(lv_event_t *e) {
-    if (strlen(num_buffer) == 0) return; /* in case of typing + again without any number */
-
-    lv_obj_t * ta = lv_event_get_target(e);
-    lv_textarea_add_text(ta, "+");
-    uint32_t num = get_num();
-    /* leaf */
-    Arvore *no = constroi_arv((Info){ .valor = num, .tipo = LITERAL }, NULL, NULL);
-    if (NULL == arv) {
-      arv = constroi_arv((Info){ .valor = '+', .tipo = SUM }, no, NULL);
-      return;
-    }
-    arv->dir = no; /* literal node a direita */
-    arv = constroi_arv((Info){ .valor = '+', .tipo = SUM }, arv, NULL);
-}
-
-/* TODO: transformar o SUB em uma operação unaria */
-static void calc_sub_event_handler(lv_event_t *e) {
-    if (strlen(num_buffer) == 0) return; /* in case of typing - again without any number */
-
-    lv_obj_t * ta = lv_event_get_target(e);
-    lv_textarea_add_text(ta, "-");
-    uint32_t num = get_num();
-    /* leaf */
-    Arvore *no = constroi_arv((Info){ .valor = num, .tipo = LITERAL }, NULL, NULL);
-    if (NULL == arv) {
-      arv = constroi_arv((Info){ .valor = '-', .tipo = SUB }, no, NULL);
-      return;
-    }
-    arv->dir = no; /* literal node a direita */
-    arv = constroi_arv((Info){ .valor = '-', .tipo = SUB }, arv, NULL);
-}
-
-static void calc_mul_event_handler(lv_event_t *e) {
-    if (strlen(num_buffer) == 0) return; /* in case of typing * again without any number */
-
-    lv_obj_t * ta = lv_event_get_target(e);
-    lv_textarea_add_text(ta, "*");
-    uint32_t num = get_num();
-    /* leaf */
-    Arvore *no = constroi_arv((Info){ .valor = num, .tipo = LITERAL }, NULL, NULL);
-    if (NULL == arv) {
-      arv = constroi_arv((Info){ .valor = '*', .tipo = MUL }, no, NULL);
-      return;
-    }
-    arv->dir = no; /* literal node a direita */
-    arv = constroi_arv((Info){ .valor = '*', .tipo = MUL }, arv, NULL);
-}
-
-static void calc_divi_event_handler(lv_event_t *e) {
-    if (strlen(num_buffer) == 0) return; /* in case of typing / again without any number */
-
-    lv_obj_t * ta = lv_event_get_target(e);
-    lv_textarea_add_text(ta, "/");
-    uint32_t num = get_num();
-    /* leaf */
-    Arvore *no = constroi_arv((Info){ .valor = num, .tipo = LITERAL }, NULL, NULL);
-    if (NULL == arv) {
-      arv = constroi_arv((Info){ .valor = '/', .tipo = DIVI }, no, NULL);
-      in_imprime_arv(arv);
-      return;
-    }
-    arv->dir = no; /* literal node a direita */
-    arv = constroi_arv((Info){ .valor = '/', .tipo = DIVI }, arv, NULL);
-}
-
-static int32_t tree_evaluate(Arvore *a) {
-    if (NULL == a->dir) return a->esq->info.valor;
-  
-    /* in-case of single arit node */
-    if (a->esq->info.tipo == LITERAL && a->dir->info.tipo == LITERAL) {
-      if (a->info.tipo == SUM) return a->esq->info.valor + a->dir->info.valor;
-      if (a->info.tipo == SUB) return a->esq->info.valor - a->dir->info.valor;
-      if (a->info.tipo == MUL) return a->esq->info.valor * a->dir->info.valor;
-      /* TODO: verificar divisao por zero */
-      if (a->info.tipo == DIVI) return a->esq->info.valor / a->dir->info.valor;
-    }
- 
-  
-    int32_t result = a->dir->info.valor;
-    printf("result %ld\n", result);
-    for (Arvore *aux = a->esq; aux != NULL; aux = aux->esq) {      
-      switch (aux->info.tipo) {
-      case SUM:
-	if (aux->esq->info.tipo == LITERAL) result += aux->esq->info.valor;
-	result += aux->dir->info.valor;
-	break;
-      case SUB:
-	/* TODO: suportar sub como operador unario */
-	result = -aux->dir->info.valor - result;
-	if (aux->esq->info.tipo == LITERAL) result = aux->esq->info.valor + result;
-	break;
-      /* TODO: suportar mul e divi */
-      default:
-	break;
-      }
-      printf("result %ld\n", result);
-    }
-    return result;
-}
-
 static void calc_eval_event_handler(lv_event_t *e) {
-    lv_obj_t * ta = lv_event_get_target(e);
+    lv_obj_t * ta = lv_event_get_user_data(e);
     const char *txt = lv_textarea_get_text(ta);
-
-    uint32_t num = get_num(); /* resets cursor and num_buffer */
-    printf("num: %lu\n", num);
-    printf("eval arv: %s\n", txt);
-    /* last leaf opr */
-    arv->dir = constroi_arv((Info){ .valor = num, .tipo = LITERAL }, NULL, NULL);;
-
-    in_imprime_arv(arv);
-    
-    int32_t result = tree_evaluate(arv);
-    printf("result: %ld\n", result);
-    arv_libera(arv);
-    arv = cria_arv_vazia();
-
-    char result_txt[MAX_NUM_DIGITS];
-    snprintf(result_txt, sizeof(result_txt), "%ld", result);
-
-    lv_textarea_set_text(ta, result_txt); /* set result on the screen */
-
-    /* update num_buffer with latest result */
-    for (uint8_t i = 0; i < MAX_NUM_DIGITS; ++i) {
-      num_buffer[cursor++] = result_txt[i];
-    }
+    printf("txt: %s\n", txt);
+    printf("\n\n");
+    create_stack(txt);
+    //lv_textarea_set_text(ta, ""); /* set result on the screen */
 }
 
 static void btnm_event_handler(lv_event_t *e) {
@@ -342,34 +307,14 @@ static void btnm_event_handler(lv_event_t *e) {
     lv_obj_t * ta = lv_event_get_user_data(e);
     const char *c_txt = lv_buttonmatrix_get_button_text(obj, lv_buttonmatrix_get_selected_button(obj));
 
-    /* TODO: remover da arvore quando apagar */
     if (lv_strcmp(c_txt, LV_SYMBOL_BACKSPACE) == 0) {
       lv_textarea_delete_char(ta);
       return;
     } else if (lv_strcmp(c_txt, "=") == 0) {
-      lv_obj_send_event(ta, CALC_EVENT_EVAL, NULL); // evaluate
+      lv_obj_send_event(ta, CALC_EVENT_EVAL, NULL); /* evaluate */
       return;
     }
-
-    switch (*c_txt) {
-    case '+':
-      lv_obj_send_event(ta, CALC_EVENT_SUM, NULL);
-      break;
-    case '-':
-      lv_obj_send_event(ta, CALC_EVENT_SUB, NULL);
-      break;
-    case '*':
-      lv_obj_send_event(ta, CALC_EVENT_MUL, NULL);
-      break;
-    case '/':
-      lv_obj_send_event(ta, CALC_EVENT_DIVI, NULL);
-      break;
-    default:
-      if (cursor == MAX_NUM_DIGITS) return;
-      num_buffer[cursor++] = *c_txt;
-      lv_textarea_add_text(ta, c_txt);
-      break;
-    }
+    lv_textarea_add_text(ta, c_txt);
 }
 
 void create_calc() {
@@ -377,10 +322,6 @@ void create_calc() {
     lv_textarea_set_one_line(ta, true);
     lv_obj_align(ta, LV_ALIGN_TOP_MID, 10, 10);
     /* calc events */
-    lv_obj_add_event_cb(ta, calc_sum_event_handler, CALC_EVENT_SUM, ta);
-    lv_obj_add_event_cb(ta, calc_sub_event_handler, CALC_EVENT_SUB, ta);
-    lv_obj_add_event_cb(ta, calc_mul_event_handler, CALC_EVENT_MUL, ta);
-    lv_obj_add_event_cb(ta, calc_divi_event_handler, CALC_EVENT_DIVI, ta);
     lv_obj_add_event_cb(ta, calc_eval_event_handler, CALC_EVENT_EVAL, ta);
     lv_obj_add_state(ta, LV_STATE_FOCUSED); /*To be sure the cursor is visible*/
 
@@ -427,10 +368,6 @@ void app_main(void)
     ESP_ERROR_CHECK(app_lvgl_init());
 
     /* calc events */
-    CALC_EVENT_SUM = lv_event_register_id();
-    CALC_EVENT_SUB = lv_event_register_id();
-    CALC_EVENT_MUL = lv_event_register_id();
-    CALC_EVENT_DIVI = lv_event_register_id();
     CALC_EVENT_EVAL = lv_event_register_id();
     lvgl_port_lock(0);
 
