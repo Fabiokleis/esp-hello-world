@@ -46,7 +46,7 @@ static lv_display_t *lvgl_disp = NULL;
 static lv_indev_t *lvgl_touch_indev = NULL;
 
 /* tree, lvgl custom events */
-#define MAX_TREE_HEIGHT 2
+#define MAX_TREE_HEIGHT 20
 #define MAX_STACK_SIZE 3 * MAX_TREE_HEIGHT
 #define MAX_NUM_DIGITS 9
 static uint32_t CALC_EVENT_EVAL;
@@ -222,10 +222,8 @@ static uint8_t op_peso(char op) {
   return 2;
 }
 
-/* shunting yard RPN */
+/* shunting yard RPN my version sucks */
 static char** create_stack(const char *txt) {
-
-  
   char num_buffer[MAX_NUM_DIGITS] = {0};
   char op_stack[MAX_STACK_SIZE][1] = {[0][0]=0};
   char data_stack[MAX_STACK_SIZE][MAX_NUM_DIGITS] = {[0][0]=0};
@@ -233,51 +231,61 @@ static char** create_stack(const char *txt) {
   uint8_t op_counter = 0;
   uint8_t data_counter = 0;
   
-  printf("2txt: %s\n", txt);
+  printf("expression: %s\n", txt);
   
   for (uint8_t i = 0; txt[i] != '\0'; i++) {
     if (is_operator(txt[i])) {
-      printf("i: %c\n", txt[i]);
       if (op_counter > 0) {
-	char op = op_stack[op_counter-1][0]; /* top stack op */
-	printf("op: %c\n", op);
+	char o2 = op_stack[op_counter-1][0]; /* top stack op */
 	uint8_t npeso = op_peso(txt[i]); /* next stack op */
-	if (npeso > op_peso(op)) {
+	printf("i: %c\n", txt[i]);
+	printf("o2: %c\n", o2);
+	if (npeso > op_peso(o2)) {
 	  op_stack[op_counter++][0] = txt[i];
 	} else {
-	  /* op_stack[op_counter-1][0] = '\0'; */
-	  while (npeso < op_peso(op)) {
-	    op_counter--;
-	    data_stack[data_counter++][0] = op; /* push do top op com peso maior */
-	    if (op_counter == 0) break;
-	    op_stack[op_counter][0] = op_stack[op_counter-1][0];
+	  
+	  printf("stack opcounter: %d\n", op_counter);
+	  for (uint8_t i = 0; i <= op_counter; ++i) {
+	    printf("%c\n", op_stack[i][0]);
+	  }
+	  printf("end\n");
+
+	  if (op_counter == 1) {
+	    data_stack[data_counter++][0] = o2;
 	    op_stack[op_counter-1][0] = '\0';
-	    op = op_stack[op_counter][0]; /* pop do top op da stack */
+	    op_stack[op_counter--][0] = txt[i]; // push op
+	  } else {
+	    op_counter--;
+	    while (op_counter > 0 && npeso <= op_peso(o2)) {
+	      printf("wo2: %c\n", o2);
+	      /* pop top op to data stack */
+	      data_stack[data_counter++][0] = o2; 
+	      op_stack[op_counter][0] = '\0'; /* zero initialize */
+	      o2 = op_stack[--op_counter][0]; /* next op */
+	    }
+	    op_stack[op_counter++][0] = txt[i];
 	  }
 	}
       } else {
-	printf("chamo op %c\n", txt[i]);
 	op_stack[op_counter++][0] = txt[i];
       }
     } else {
       while(txt[i] != '\0' && !is_operator(txt[i])) {
-	printf("char: %c\n", txt[i]);
 	num_buffer[num_cursor++] = txt[i];
 	i++;
       }
-      printf("num_buffer: %s\n", num_buffer);
-      strncpy(data_stack[data_counter], num_buffer, MAX_NUM_DIGITS);
+      strncpy(data_stack[data_counter++], num_buffer, MAX_NUM_DIGITS);
       memset(num_buffer, 0, MAX_NUM_DIGITS);
       num_cursor = 0;
-      data_counter++;
-      i--;
+      i--; /* double iterator on for */
     }
   }
 
   printf("op stack\n");
   printf("strlen: %d\n", op_counter);
-  for (uint8_t i = 0; i <= op_counter; ++i) {
+  for (uint8_t i = 0; i < op_counter; ++i) {
     printf("%c\n", op_stack[i][0]);
+    data_stack[data_counter++][0] = op_stack[i][0]; /* push rest of operators */
   }
   printf("------------------\n");
   
@@ -289,6 +297,7 @@ static char** create_stack(const char *txt) {
   }
   printf("------------------\n");
 
+  
   return NULL;
 }
 
