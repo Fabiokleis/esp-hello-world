@@ -241,10 +241,9 @@ static CalcRPNStack create_stack(const char *txt) {
   int16_t op_counter = -1;
   uint8_t data_counter = 0;
 
-  /* TODO: suportar parenteses */
+  /* TODO: suportar parenteses e casos de operadores unarios */
   for (uint8_t i = 0; txt[i] != '\0'; i++) {
     if (is_operator(txt[i])) {
-
       if (op_counter == -1) {
 	op_stack[++op_counter][0] = txt[i];
 	continue;
@@ -271,17 +270,11 @@ static CalcRPNStack create_stack(const char *txt) {
       i--; /* double iterator on for */
     }
   }
-  printf("data stack\n");
-  printf("strlen: %d\n", op_counter);
-  for (uint8_t i = 0; i < op_counter; ++i) {
-    printf("%c\n", op_stack[i][0]);
-  }
-  printf("------------------\n");
 
   /* copy ops rest of operator stack */
   for (int16_t i = op_counter; i >= 0; i--) {
     rpn.data_stack[data_counter++][0] = op_stack[i][0]; /* push rest of operators */
-    printf("%c\n", op_stack[i][0]);
+    printf("%c\n", op_stack[i][0]); /* print RPN stack result */
   }
 
   rpn.data_counter = data_counter;
@@ -317,13 +310,21 @@ Arvore* expr_tree(CalcRPNStack rpn) {
     } else {
       /* just push literal */
       uint8_t num = get_num(rpn.data_stack[i]);
-      printf("num %d\n", num);
       node_stack[++node_counter] =
 	constroi_arv((Info){ .tipo = LITERAL, .valor = num }, NULL, NULL);
     }
   }
 
   return node_stack[node_counter];
+}
+
+/* verificar divisao por zero */
+static int32_t eval_tree(Arvore *a) {
+  if (a->info.tipo == SUM) return  eval_tree(a->esq) + eval_tree(a->dir);
+  if (a->info.tipo == SUB) return eval_tree(a->esq) - eval_tree(a->dir);
+  if (a->info.tipo == MUL) return eval_tree(a->esq) * eval_tree(a->dir);
+  if (a->info.tipo == DIVI) return eval_tree(a->esq) / eval_tree(a->dir);
+  return a->info.valor;
 }
 
 /* calculator arit exprs */
@@ -337,11 +338,15 @@ static void calc_eval_event_handler(lv_event_t *e) {
     for (uint8_t i = 0; i < rpn.data_counter; ++i) printf("%s", rpn.data_stack[i]);
     printf("\n");
     
-    arv = expr_tree(rpn);
+    arv = expr_tree(rpn); /* build binary from rpn stack */
     printf("infix: \n");
     in_imprime_arv(arv); /* infix printing */
-    arv_libera(arv);
-    //lv_textarea_set_text(ta, ""); /* set result on the screen */
+    int32_t result = eval_tree(arv); /* calc result */
+    printf("result: %ld\n", result);
+    arv_libera(arv); /* free heap */
+    char buffer[MAX_NUM_DIGITS] = {0};
+    sprintf(buffer, "%ld", result); // convert result to char*
+    lv_textarea_set_text(ta, buffer); /* set result on the screen */
 }
 
 static void btnm_event_handler(lv_event_t *e) {
