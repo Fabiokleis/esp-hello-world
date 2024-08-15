@@ -217,16 +217,12 @@ static inline bool is_operator(char p) {
 static inline uint8_t op_peso(char op) {
   switch (op) {
   case '+':
-    printf("soma\n");
     return 2;
   case '-': 
-    printf("sub\n");
     return 2;
   case '*':
-    printf("mul\n");
     return 3;
   case '/':
-    printf("divi\n");
     return 3;
   }
   return 2;
@@ -242,30 +238,27 @@ static CalcRPNStack create_stack(const char *txt) {
   char num_buffer[MAX_NUM_DIGITS] = {0};
   char op_stack[MAX_STACK_SIZE][1] = {[0][0]=0};
   uint8_t num_cursor = 0;
-  int16_t op_counter = 0;
+  int16_t op_counter = -1;
   uint8_t data_counter = 0;
 
-  /* TODO: suportar parenteses e mudar para uma stack começando em -1 */
+  /* TODO: suportar parenteses */
   for (uint8_t i = 0; txt[i] != '\0'; i++) {
     if (is_operator(txt[i])) {
-      if (op_counter > 0) {
-	char o2 = op_stack[op_counter-1][0]; /* top stack op */
-	uint8_t npeso = op_peso(txt[i]); /* next stack op */
-	if (op_peso(o2) < npeso) {
-	  op_stack[op_counter++][0] = txt[i];
-	} else {
-	  --op_counter;
-	  while (op_counter >= 0 && npeso <= op_peso(o2)) {
-	    /* pop top op to data stack */
-	    rpn.data_stack[data_counter++][0] = o2;
-	    o2 = op_stack[op_counter-1][0]; /* pop op */
-	    op_stack[op_counter][0] = '\0'; /* zero initialize */
-	    op_counter--;
-	  }
-	  op_stack[++op_counter][0] = txt[i];
-	}
+
+      if (op_counter == -1) {
+	op_stack[++op_counter][0] = txt[i];
+	continue;
+      }
+      if (op_peso(op_stack[op_counter][0]) < op_peso(txt[i])) {
+	op_stack[++op_counter][0] = txt[i];
       } else {
-	op_stack[op_counter++][0] = txt[i];
+	char o2 = op_stack[op_counter][0];
+	while (op_peso(txt[i]) <= op_peso(o2) && op_counter > -1) {
+	  rpn.data_stack[data_counter++][0] = o2; /* push */
+	  op_stack[op_counter][0] = '\0';         /* zero initialize */
+	  o2 = op_stack[--op_counter][0]; 	  /* pop top op to data stack */
+	}
+	op_stack[++op_counter][0] = txt[i];
       }
     } else {
       while(txt[i] != '\0' && !is_operator(txt[i])) {
@@ -280,7 +273,7 @@ static CalcRPNStack create_stack(const char *txt) {
   }
   printf("data stack\n");
   printf("strlen: %d\n", op_counter);
-  for (uint8_t i = 0; i <= op_counter; ++i) {
+  for (uint8_t i = 0; i < op_counter; ++i) {
     printf("%c\n", op_stack[i][0]);
   }
   printf("------------------\n");
