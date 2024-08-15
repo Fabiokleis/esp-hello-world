@@ -52,6 +52,11 @@ static lv_indev_t *lvgl_touch_indev = NULL;
 static uint32_t CALC_EVENT_EVAL;
 Arvore *arv = NULL;
 
+typedef struct CalcRPNStack {
+  uint8_t data_counter;
+  char data_stack[MAX_TREE_HEIGHT][MAX_NUM_DIGITS];
+} CalcRPNStack;
+
 static esp_err_t init_lcd() {
     esp_err_t ret = ESP_OK;
 
@@ -199,72 +204,65 @@ static esp_err_t app_lvgl_init(void)
 }
 
 
-/* uint32_t get_num() { */
-/*     const uint32_t num = (uint32_t)strtol(num_buffer, NULL, 10); */
-/*     /\* reset number digits buffer and cursor *\/ */
-/*     memset(num_buffer, 0, MAX_NUM_DIGITS); */
-/*     num_cursor = 0; */
-/*     return num; */
-/* } */
+static inline uint32_t get_num(char buffer[MAX_NUM_DIGITS]) {
+    const uint32_t num = (uint32_t)strtol(buffer, NULL, 10);
+    return num;
+}
 
 
-static bool is_operator(char p) {
+static inline bool is_operator(char p) {
   return (p == '+') || (p == '-') || (p == '*') || (p == '/');
 }
 
-static uint8_t op_peso(char op) {
+static inline uint8_t op_peso(char op) {
   switch (op) {
   case '+':
-  case '-': return 2;
+    printf("soma\n");
+    return 2;
+  case '-': 
+    printf("sub\n");
+    return 2;
   case '*':
-  case '/': return 3;
+    printf("mul\n");
+    return 3;
+  case '/':
+    printf("divi\n");
+    return 3;
   }
   return 2;
 }
 
 /* shunting yard RPN my version sucks */
-static char** create_stack(const char *txt) {
+/* https://en.wikipedia.org/wiki/Shunting_yard_algorithm */
+static CalcRPNStack create_stack(const char *txt) {
+  CalcRPNStack rpn = {
+    .data_counter = 0,
+    .data_stack = { [0][0]=0 }
+  };
   char num_buffer[MAX_NUM_DIGITS] = {0};
   char op_stack[MAX_STACK_SIZE][1] = {[0][0]=0};
-  char data_stack[MAX_STACK_SIZE][MAX_NUM_DIGITS] = {[0][0]=0};
   uint8_t num_cursor = 0;
-  uint8_t op_counter = 0;
+  int16_t op_counter = 0;
   uint8_t data_counter = 0;
-  
-  printf("expression: %s\n", txt);
-  
+
+  /* TODO: suportar parenteses e mudar para uma stack começando em -1 */
   for (uint8_t i = 0; txt[i] != '\0'; i++) {
     if (is_operator(txt[i])) {
       if (op_counter > 0) {
 	char o2 = op_stack[op_counter-1][0]; /* top stack op */
 	uint8_t npeso = op_peso(txt[i]); /* next stack op */
-	printf("i: %c\n", txt[i]);
-	printf("o2: %c\n", o2);
-	if (npeso > op_peso(o2)) {
+	if (op_peso(o2) < npeso) {
 	  op_stack[op_counter++][0] = txt[i];
 	} else {
-	  
-	  printf("stack opcounter: %d\n", op_counter);
-	  for (uint8_t i = 0; i <= op_counter; ++i) {
-	    printf("%c\n", op_stack[i][0]);
-	  }
-	  printf("end\n");
-
-	  if (op_counter == 1) {
-	    data_stack[data_counter++][0] = o2;
-	    op_stack[op_counter-1][0] = '\0';
-	    op_stack[op_counter--][0] = txt[i]; // push op
-	  } else {
+	  --op_counter;
+	  while (op_counter >= 0 && npeso <= op_peso(o2)) {
+	    /* pop top op to data stack */
+	    rpn.data_stack[data_counter++][0] = o2;
+	    o2 = op_stack[op_counter-1][0]; /* pop op */
+	    op_stack[op_counter][0] = '\0'; /* zero initialize */
 	    op_counter--;
-	    while (op_counter > 0 && npeso <= op_peso(o2)) {
-	      printf("wo2: %c\n", o2);
-	      /* pop top op to data stack */
-	      data_stack[data_counter++][0] = o2; 
-	      op_stack[op_counter][0] = '\0'; /* zero initialize */
-	      o2 = op_stack[--op_counter][0]; /* next op */
-	    }
-	    op_stack[op_counter++][0] = txt[i];
 	  }
+	  op_stack[++op_counter][0] = txt[i];
 	}
       } else {
 	op_stack[op_counter++][0] = txt[i];
@@ -274,40 +272,82 @@ static char** create_stack(const char *txt) {
 	num_buffer[num_cursor++] = txt[i];
 	i++;
       }
-      strncpy(data_stack[data_counter++], num_buffer, MAX_NUM_DIGITS);
+      strncpy(rpn.data_stack[data_counter++], num_buffer, MAX_NUM_DIGITS);
       memset(num_buffer, 0, MAX_NUM_DIGITS);
       num_cursor = 0;
       i--; /* double iterator on for */
     }
   }
-
-  printf("op stack\n");
-  printf("strlen: %d\n", op_counter);
-  for (uint8_t i = 0; i < op_counter; ++i) {
-    printf("%c\n", op_stack[i][0]);
-    data_stack[data_counter++][0] = op_stack[i][0]; /* push rest of operators */
-  }
-  printf("------------------\n");
-  
   printf("data stack\n");
-  printf("strlen: %d\n", data_counter);
-  for (uint8_t i = 0; i < data_counter; ++i) {
-    if (strlen(data_stack[i]) == 1) printf("%c\n", data_stack[i][0]);
-    else printf("%s\n", data_stack[i]);
+  printf("strlen: %d\n", op_counter);
+  for (uint8_t i = 0; i <= op_counter; ++i) {
+    printf("%c\n", op_stack[i][0]);
   }
   printf("------------------\n");
 
-  
-  return NULL;
+  /* copy ops rest of operator stack */
+  for (int16_t i = op_counter; i >= 0; i--) {
+    rpn.data_stack[data_counter++][0] = op_stack[i][0]; /* push rest of operators */
+    printf("%c\n", op_stack[i][0]);
+  }
+
+  rpn.data_counter = data_counter;
+  return rpn;
+}
+
+Arvore* expr_tree(CalcRPNStack rpn) {
+  Arvore* node_stack[rpn.data_counter];
+  int16_t node_counter = -1;
+  for (int8_t i = 0; i < rpn.data_counter; ++i) {
+    /* operator */
+    if (rpn.data_stack[i][0] - '0' < 0) {
+      Info info = { .valor = rpn.data_stack[i][0] };
+      switch (rpn.data_stack[i][0]) {
+      case '+':
+	info.tipo = SUM;
+	break;
+      case '-':
+	info.tipo = SUB;
+	break;
+      case '*':
+	info.tipo = MUL;
+	break;
+      case '/':
+	info.tipo = DIVI;
+	break;
+      }
+      Arvore *node = constroi_arv(info, NULL, NULL);
+      node->dir = node_stack[node_counter--];
+      node->esq = node_stack[node_counter--];
+      node_stack[++node_counter] = node;
+      
+    } else {
+      /* just push literal */
+      uint8_t num = get_num(rpn.data_stack[i]);
+      printf("num %d\n", num);
+      node_stack[++node_counter] =
+	constroi_arv((Info){ .tipo = LITERAL, .valor = num }, NULL, NULL);
+    }
+  }
+
+  return node_stack[node_counter];
 }
 
 /* calculator arit exprs */
 static void calc_eval_event_handler(lv_event_t *e) {
     lv_obj_t * ta = lv_event_get_user_data(e);
     const char *txt = lv_textarea_get_text(ta);
-    printf("txt: %s\n", txt);
-    printf("\n\n");
-    create_stack(txt);
+    printf("expression: %s\n", txt);
+    
+    CalcRPNStack rpn = create_stack(txt); /* express infix to rpn */
+    printf("rpn: ");
+    for (uint8_t i = 0; i < rpn.data_counter; ++i) printf("%s", rpn.data_stack[i]);
+    printf("\n");
+    
+    arv = expr_tree(rpn);
+    printf("infix: \n");
+    in_imprime_arv(arv); /* infix printing */
+    arv_libera(arv);
     //lv_textarea_set_text(ta, ""); /* set result on the screen */
 }
 
